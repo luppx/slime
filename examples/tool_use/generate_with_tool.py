@@ -7,14 +7,8 @@ from slime.rollout.sglang_rollout import GenerateState
 from slime.utils.http_utils import post
 from slime.utils.types import Sample
 
-# Import reward models
-try:
-    from slime.rollout.rm_hub.math_dapo_utils import compute_score as math_dapo_compute_score
-except ImportError:
-    raise ImportError("MathDapo is not installed")
-
 # Import jupyter tool functionality
-from .jupyter_tool import SEMAPHORE, TOOL_CONFIGS, tool_registry
+from .jupyter_tool import SEMAPHORE, tool_registry
 
 
 def postprocess_predictions(prediction: str):
