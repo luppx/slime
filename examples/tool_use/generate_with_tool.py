@@ -100,6 +100,7 @@ def postprocess_sample(sample: Sample, prompt_token_ids: List[int],
 
     # # Store tool call count for reward calculation
     # sample.tool_call_count = tool_call_count
+    return sample
 
 async def generate(args, sample: Sample, sampling_params) -> Sample:
     """Custom generation function supporting tool calls"""
@@ -135,109 +136,111 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
         raise ValueError(f"Invalid prompt type ({type(sample.prompt)}). "
                          f"Sample prompt must be either a string or a list of message dicts.")
     if debug:
-        print(f"sample.prompt:\n {sample.prompt}")
-        print(f"Formatted prompt:\n {prompt}")
+        print(f"sample.prompt:\n {sample.prompt}\nFormatted prompt:\n {prompt}")
 
     prompt_token_ids = state.tokenizer(prompt, add_special_tokens=False)["input_ids"]
     response = ""
     response_token_ids = []
-    loss_masks = [0] * len(prompt_token_ids)
+    loss_masks = []
     tool_call_count = 0  # Track actual tool call rounds
     max_new_tokens = sampling_params["max_new_tokens"]
     turn = 0
 
-    while True:
-        sampling_params["max_new_tokens"] = max_new_tokens - len(response_token_ids)
+    try:
+        while True:
+            sampling_params["max_new_tokens"] = max_new_tokens - len(response_token_ids)
 
-        if sampling_params["max_new_tokens"] <= 0:
-            print(f"[session_id: {session_id}] Response longer than expected. Max new tokens: {max_new_tokens}, "
-                  f"total tokens: {len(prompt_token_ids) + len(response_token_ids)}, prompt tokens: "
-                  f"{len(prompt_token_ids)}, response tokens: {len(response_token_ids)}, prompt: {sample.prompt}")
-            
-            sample.status = Sample.Status.TRUNCATED
-            return postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response)
+            if sampling_params["max_new_tokens"] <= 0:
+                print(f"[session_id: {session_id}] Response longer than expected. Max new tokens: {max_new_tokens}, "
+                    f"total tokens: {len(prompt_token_ids) + len(response_token_ids)}, prompt tokens: "
+                    f"{len(prompt_token_ids)}, response tokens: {len(response_token_ids)}, prompt: {sample.prompt}")
+                
+                sample.status = Sample.Status.TRUNCATED
+                return postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response)
 
-        # Prepare payload for sglang server
-        payload = {
-            "input_ids": prompt_token_ids + response_token_ids,
-            "sampling_params": sampling_params,
-            "return_logprob": True,
-        }
+            # Prepare payload for sglang server
+            payload = {
+                "input_ids": prompt_token_ids + response_token_ids,
+                "sampling_params": sampling_params,
+            }
 
-        # Log payload to wandb for debugging
-        try:
-            import wandb
+            # Log payload to wandb for debugging
+            try:
+                import wandb
 
-            if wandb.run is not None:
-                # Count available tools (from tool_specs)
-                available_tools = len(tool_specs)
-                # Count tools used in the current response
-                tools_used = response.count("<tool_call>")
+                if wandb.run is not None:
+                    # Count available tools (from tool_specs)
+                    available_tools = len(tool_specs)
+                    # Count tools used in the current response
+                    tools_used = response.count("<tool_call>")
 
-                wandb.log(
-                    {
-                        "debug/payload_length": len(prompt + response),
-                        "debug/payload_token_length": len(prompt_token_ids + response_token_ids),
-                        "debug/response_length": len(response),
-                        "debug/response_token_length": len(response_token_ids),
-                        "debug/available_tools": available_tools,
-                        "debug/tools_used": tools_used,
-                        "debug/turn": turn,
-                    }
-                )
-        except ImportError:
-            pass  # wandb not available
+                    wandb.log(
+                        {
+                            "debug/payload_length": len(prompt + response),
+                            "debug/payload_token_length": len(prompt_token_ids + response_token_ids),
+                            "debug/response_length": len(response),
+                            "debug/response_token_length": len(response_token_ids),
+                            "debug/available_tools": available_tools,
+                            "debug/tools_used": tools_used,
+                            "debug/turn": turn,
+                        }
+                    )
+            except ImportError:
+                pass  # wandb not available
 
-        output = await post(url, payload)
+            output = await post(url, payload)
 
-        # Handle abort
-        if output["meta_info"]["finish_reason"]["type"] == "abort":
-            sample.status = Sample.Status.ABORTED
-            return postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response)
+            # Handle abort
+            if output["meta_info"]["finish_reason"]["type"] == "abort":
+                sample.status = Sample.Status.ABORTED
+                return postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response)
 
-        cur_response_token_ids = output["output_ids"]
-        cur_response = state.tokenizer.decode(cur_response_token_ids, skip_special_tokens=False)
+            cur_response_token_ids = output["output_ids"]
+            cur_response = state.tokenizer.decode(cur_response_token_ids, skip_special_tokens=False)
+            if debug:
+                print(f"[session_id: {session_id}] Current response:\n{cur_response}")
 
-        response += cur_response
-        response_token_ids += cur_response_token_ids
-        loss_masks += [1] * len(cur_response_token_ids)
+            response += cur_response
+            response_token_ids += cur_response_token_ids
+            loss_masks += [1] * len(cur_response_token_ids)
 
-        # Check length limit
-        if output["meta_info"]["finish_reason"]["type"] == "length":
-            break
+            # Check length limit
+            if output["meta_info"]["finish_reason"]["type"] == "length":
+                break
 
-        next_obs, done = await execute_predictions(session_id, state, cur_response)
-        if done:
-            break
+            next_obs, done = await execute_predictions(session_id, state, cur_response)
+            if done:
+                break
+            if debug:
+                # 观察tool_response apply_chat_template后的输出结果
+                print(f"[session_id: {session_id}] Next observation: {next_obs}")
+
+            # Count tool calls (when we get tool response output, it means a tool was called)
+            if "<tool_response>" in next_obs:
+                tool_call_count += 1
+
+            assert next_obs != "", "Next observation should not be empty."
+            obs_tokens_ids = state.tokenizer(next_obs, add_special_tokens=False)["input_ids"]
+            response += next_obs
+            response_token_ids += obs_tokens_ids
+            loss_masks += [0] * len(obs_tokens_ids)
+            turn += 1
+
+        sample = postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response)
+
+        # Set status
+        match output["meta_info"]["finish_reason"]["type"]:
+            case "length":
+                sample.status = Sample.Status.TRUNCATED
+            case "abort":
+                sample.status = Sample.Status.ABORTED
+            case "stop":
+                sample.status = Sample.Status.COMPLETED
+
+    finally:
+        # close jupyter session
+        result = await tool_registry.jupyter_client.end_session(session_id)
         if debug:
-            # 观察tool_response apply_chat_template后的输出结果
-            print(f"[session_id: {session_id}] Next observation: {next_obs}")
-
-        # Count tool calls (when we get tool response output, it means a tool was called)
-        if "<tool_response>" in next_obs:
-            tool_call_count += 1
-
-        assert next_obs != "", "Next observation should not be empty."
-        obs_tokens_ids = state.tokenizer(next_obs, add_special_tokens=False)["input_ids"]
-        response += next_obs
-        response_token_ids += obs_tokens_ids
-        loss_masks += [0] * len(obs_tokens_ids)
-        turn += 1
-
-    sample = postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response)
-
-    # Set status
-    match output["meta_info"]["finish_reason"]["type"]:
-        case "length":
-            sample.status = Sample.Status.TRUNCATED
-        case "abort":
-            sample.status = Sample.Status.ABORTED
-        case "stop":
-            sample.status = Sample.Status.COMPLETED
-
-    # close jupyter session
-    result = await tool_registry.jupyter_client.end_session(session_id)
-    if debug:
-        print(f"[session_id: {session_id}] End session result: {result}")
+            print(f"[session_id: {session_id}] End session result: {result}")
 
     return sample
