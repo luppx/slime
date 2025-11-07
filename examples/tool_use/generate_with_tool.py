@@ -10,6 +10,29 @@ from slime.utils.types import Sample
 # Import jupyter tool functionality
 from .jupyter_tool import SEMAPHORE, tool_registry
 
+def format_prompt(state: GenerateState, prompt: str, tool_specs: List[Dict[str, Any]]) -> str:
+    # if prompt has already applied chat template
+    if isinstance(prompt, str) and "<|im_start|>" in prompt:
+        return prompt
+    
+    REASON_CONTENT = "Please reason step by step, and put your final answer within \\boxed{}."
+    
+    if isinstance(prompt, str):
+        if not prompt.strip().lower().endswith(REASON_CONTENT.lower()):
+            prompt = prompt.strip() + "\n" + REASON_CONTENT
+        formatted_prompt = state.tokenizer.apply_chat_template(
+            [{"role": "user", "content": prompt}], tools=tool_specs or [], 
+            add_generation_prompt=True, tokenize=False
+        )
+        return formatted_prompt
+    elif isinstance(prompt, list):
+        formatted_prompt = state.tokenizer.apply_chat_template(
+            prompt, tools=tool_specs or [], add_generation_prompt=True, tokenize=False
+        )
+        return formatted_prompt
+    else:
+        raise ValueError(f"Invalid prompt type ({type(prompt)}). "
+                         f"Sample prompt must be either a string or a list of message dicts.")
 
 def postprocess_predictions(prediction: str):
     """Extract action and content from prediction string"""
@@ -112,23 +135,8 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
 
     # Set up the initial prompt with system prompt and tools (outside the loop)
     tool_specs = tool_registry.get_tool_specs()
-
-    if isinstance(sample.prompt, str):
-        # if prompt has already applied chat template
-        if "<|im_start|>" in sample.prompt:
-            prompt = sample.prompt
-        else:
-            prompt = state.tokenizer.apply_chat_template(
-                [{"role": "user", "content": sample.prompt}], tools=tool_specs or [], 
-                add_generation_prompt=True, tokenize=False
-            )
-    elif isinstance(sample.prompt, list):
-        prompt = state.tokenizer.apply_chat_template(
-            sample.prompt, tools=tool_specs or [], add_generation_prompt=True, tokenize=False
-        )
-    else:
-        raise ValueError(f"Invalid prompt type ({type(sample.prompt)}). "
-                         f"Sample prompt must be either a string or a list of message dicts.")
+    
+    prompt = format_prompt(state, sample.prompt, tool_specs)
     if debug:
         print(f"sample.prompt:\n {sample.prompt}\nFormatted prompt:\n {prompt}")
 
