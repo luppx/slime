@@ -238,7 +238,9 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
                 sample.status = Sample.Status.ABORTED
             case "stop":
                 sample.status = Sample.Status.COMPLETED
-
+        
+        if debug:
+            print(f"sample: {sample}")
     finally:
         # close jupyter session
         result = await tool_registry.jupyter_client.end_session(session_id)
