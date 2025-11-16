@@ -102,8 +102,14 @@ async def execute_predictions(session_id: str, state: GenerateState, prediction:
 
     return next_obs, done
 
-def postprocess_sample(sample: Sample, prompt_token_ids: List[int], 
-                       response_token_ids: List[int], loss_masks: List[int], response: str) -> Sample:
+def postprocess_sample(sample: Sample, prompt_token_ids: List[int], response_token_ids: List[int], 
+                       loss_masks: List[int], response: str, max_new_tokens: int, tokenizer) -> Sample:
+    if len(response_token_ids) > max_new_tokens:
+        response_token_ids = response_token_ids[:max_new_tokens]
+        response = tokenizer.decode(response_token_ids, skip_special_tokens=False)
+        loss_masks = loss_masks[:max_new_tokens]
+        sample.status = Sample.Status.TRUNCATED
+    
     # Set sample attributes
     sample.tokens = prompt_token_ids + response_token_ids
     sample.response_length = len(response_token_ids)
@@ -158,7 +164,8 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
                     f"{len(prompt_token_ids)}, response tokens: {len(response_token_ids)}, prompt: {sample.prompt}")
                 
                 sample.status = Sample.Status.TRUNCATED
-                return postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response)
+                return postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response, 
+                                          max_new_tokens, state.tokenizer)
 
             # Prepare payload for sglang server
             payload = {
@@ -178,8 +185,8 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
 
                     wandb.log(
                         {
-                            "debug/payload_length": len(prompt + response),
-                            "debug/payload_token_length": len(prompt_token_ids + response_token_ids),
+                            "debug/total_length": len(prompt + response),
+                            "debug/total_token_length": len(prompt_token_ids + response_token_ids),
                             "debug/response_length": len(response),
                             "debug/response_token_length": len(response_token_ids),
                             "debug/available_tools": available_tools,
@@ -195,7 +202,8 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
             # Handle abort
             if output["meta_info"]["finish_reason"]["type"] == "abort":
                 sample.status = Sample.Status.ABORTED
-                return postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response)
+                return postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response, 
+                                          max_new_tokens, state.tokenizer)
 
             cur_response_token_ids = output["output_ids"]
             cur_response = state.tokenizer.decode(cur_response_token_ids, skip_special_tokens=False)
@@ -228,8 +236,6 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
             loss_masks += [0] * len(obs_tokens_ids)
             turn += 1
 
-        sample = postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response)
-
         # Set status
         match output["meta_info"]["finish_reason"]["type"]:
             case "length":
@@ -239,6 +245,8 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
             case "stop":
                 sample.status = Sample.Status.COMPLETED
         
+        sample = postprocess_sample(sample, prompt_token_ids, response_token_ids, loss_masks, response, 
+                                    max_new_tokens, state.tokenizer)
         if debug:
             print(f"sample: {sample}")
     finally:

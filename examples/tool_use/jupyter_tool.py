@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 
 # Configuration for tool execution
 TOOL_CONFIGS = {
-    "tool_concurrency": 128,
+    "tool_concurrency": 360,
     # Python interpreter settings
     "python_timeout": 120,  # 2 minutes for complex calculations
 }
@@ -51,7 +51,9 @@ class JupyterToolClient:
             if response.status_code == 200:
                 return response.json().get("output", "")
             else:
-                return f"Exception occurred when calling Jupyter notebook server. HTTP response code: {response.status_code}, HTTP response: {response.text}"
+                err = f"Exception occurred when calling Jupyter notebook server. HTTP response code: {response.status_code}, HTTP response: {response.text}"
+                print((f"[session_id: {session_id}] {err}"))
+                return err
         except Exception as e:
             err = f"Exception occurred when calling Jupyter notebook server: {e}"
             print((f"[session_id: {session_id}] {err}\ntraceback: {traceback.format_exc()}"))
@@ -120,11 +122,10 @@ class ToolRegistry:
         if tool_name not in self.tools:
             return f"Error: Tool '{tool_name}' not found"
 
-        async with SEMAPHORE:
-            if tool_name == "python":
-                return await self._execute_python(arguments, session_id)
-            else:
-                return f"Error: Tool '{tool_name}' not implemented"
+        if tool_name == "python":
+            return await self._execute_python(arguments, session_id)
+        else:
+            return f"Error: Tool '{tool_name}' not implemented"
 
     async def _execute_python(self, arguments: Dict[str, Any], session_id: str) -> str:
         """Execute Python code using the sandbox"""
