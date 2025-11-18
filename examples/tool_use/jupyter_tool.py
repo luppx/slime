@@ -8,7 +8,6 @@ This module provides:
 """
 
 import asyncio
-import code
 import os
 import requests
 import traceback
