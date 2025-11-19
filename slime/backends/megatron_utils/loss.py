@@ -497,8 +497,18 @@ def policy_loss_function(
         loss += 0 * logits.sum()
 
     train_rollout_logprob_abs_diff = None
-    if "rollout_log_probs" in batch:
-        rollout_log_probs = torch.cat(batch["rollout_log_probs"], dim=0)
+    # if "rollout_log_probs" in batch:
+    #     rollout_log_probs = torch.cat(batch["rollout_log_probs"], dim=0)
+    #     train_rollout_logprob_abs_diff = sum_of_sample_mean((old_log_probs - rollout_log_probs).abs())
+    
+    # tmp fix by kj: rollout_log_probs is optional; only compute this metric when it's provided as a list of tensors.
+    rollout_log_probs_list = batch.get("rollout_log_probs", None)
+    if (
+        isinstance(rollout_log_probs_list, list)
+        and len(rollout_log_probs_list) > 0
+        and all(isinstance(x, torch.Tensor) for x in rollout_log_probs_list)
+    ):
+        rollout_log_probs = torch.cat(rollout_log_probs_list, dim=0)
         train_rollout_logprob_abs_diff = sum_of_sample_mean((old_log_probs - rollout_log_probs).abs())
 
     reported_loss = {
