@@ -58,6 +58,8 @@ def compute_statistics(values: List[float]) -> Dict[str, float]:
     return {
         "mean": np.mean(values).item(),
         "median": np.median(values).item(),
+        "max": np.max(values).item(),
+        "min": np.min(values).item(),
     }
 
 
