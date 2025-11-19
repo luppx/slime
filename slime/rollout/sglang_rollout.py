@@ -19,6 +19,7 @@ from slime.utils.http_utils import get, post
 from slime.utils.mask_utils import get_response_lengths
 from slime.utils.misc import SingletonMeta, load_function
 from slime.utils.types import Sample
+from examples.tool_use.statistic_metrics import log_tir_stat_metrics
 
 from .rm_hub import async_rm, batched_async_rm
 
@@ -267,6 +268,10 @@ async def generate_and_rm_group(
         tasks.append(generate_and_rm(args, sample, current_sampling_params, evaluation=evaluation))
 
     group = await asyncio.gather(*tasks)
+
+    if len(group) > 0 and group[0].train_metadata is not None:
+        group_tir_metrics = log_tir_stat_metrics(group)
+        print(f"group {group[0].group_index} tir metrics: {group_tir_metrics}")
 
     # for the rm that need the whole group, we will not do the rm here
     if not state.aborted and args.group_rm:
