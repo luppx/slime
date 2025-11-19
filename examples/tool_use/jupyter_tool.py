@@ -8,6 +8,7 @@ This module provides:
 """
 
 import asyncio
+import httpx
 import os
 import requests
 import traceback
@@ -27,8 +28,7 @@ SEMAPHORE = asyncio.Semaphore(TOOL_CONFIGS["tool_concurrency"])
 class JupyterToolClient:
     """Client for interacting with the Jupyter tool service"""
     def __init__(self, server_url: str, http_timeout: int = 600):
-        # request timeout in seconds
-        self.http_timeout = http_timeout
+        self.http_client = httpx.AsyncClient(timeout=httpx.Timeout(http_timeout))
 
         self.default_server_url = "http://localhost:8000"
         self.server_url = server_url or os.getenv("JUPYTER_TOOL_SERVER_URL", self.default_server_url)
@@ -46,7 +46,7 @@ class JupyterToolClient:
         payload = {"session_id": session_id, "code": code}
 
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=self.http_timeout)
+            response = await self.http_client.post(url, json=payload or {}, headers=headers)
             if response.status_code == 200:
                 return response.json().get("output", "")
             else:
@@ -68,7 +68,7 @@ class JupyterToolClient:
         }
 
         try:
-            response = requests.post(url, headers=headers, timeout=self.http_timeout)
+            response = await self.http_client.post(url, headers=headers)
             if response.status_code == 200:
                 return response.json().get("output", "")
             else:
