@@ -282,28 +282,6 @@ async def generate(args, sample: Sample, sampling_params) -> Sample:
                 "sampling_params": sampling_params,
             }
 
-            # # Log payload to wandb for debugging
-            # try:
-            #     import wandb
-
-            #     if wandb.run is not None:
-            #         # Count tools used in the current response
-            #         tools_used = response.count("<tool_call>")
-
-            #         wandb.log(
-            #             {
-            #                 "debug/total_length": len(prompt + response),
-            #                 "debug/total_token_length": len(prompt_token_ids + response_token_ids),
-            #                 "debug/response_length": len(response),
-            #                 "debug/response_token_length": len(response_token_ids),
-            #                 "debug/available_tools": available_tools,
-            #                 "debug/tools_used": tools_used,
-            #                 "debug/turn": turn,
-            #             }
-            #         )
-            # except ImportError:
-            #     pass  # wandb not available
-
             sgl_generation_start_time = time.time()
             output = await post(url, payload)
             _log_duration_time(sgl_generation_start_time, debug_log_dict, "sgl_generation_times")
