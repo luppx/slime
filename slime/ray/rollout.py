@@ -22,6 +22,7 @@ from slime.utils.misc import load_function
 from slime.utils.ray_utils import Box
 from slime.utils.types import Sample
 from slime.utils.wandb_utils import init_wandb_secondary
+from examples.tool_use.statistic_metrics import log_tir_stat_metrics
 
 from .utils import NOSET_VISIBLE_DEVICES_ENV_VARS_LIST, Lock
 
@@ -449,6 +450,7 @@ def _log_eval_rollout_data(rollout_id, args, data):
         log_dict[f"eval/{key}"] = sum(rewards) / len(rewards)
         if (samples := data[key].get("samples")) is not None:
             log_dict |= dict_add_prefix(_compute_reward_cat_metrics(args, samples), f"eval/{key}-")
+            log_dict |= dict_add_prefix(log_tir_stat_metrics(samples), f"eval/{key}/")
         if "truncated" in data[key]:
             truncated = data[key]["truncated"]
             log_dict[f"eval/{key}-truncated_ratio"] = sum(truncated) / len(truncated)
@@ -497,6 +499,7 @@ def _log_rollout_data(rollout_id, args, samples, rollout_extra_metrics, rollout_
     log_dict |= _compute_zero_std_metrics(args, samples)
     log_dict |= _compute_spec_metrics(args, samples)
     log_dict |= dict_add_prefix(_compute_reward_cat_metrics(args, samples), f"rollout/")
+    log_dict |= dict_add_prefix(log_tir_stat_metrics(samples), f"tir/")
     print(f"perf {rollout_id}: {log_dict}")
     step = (
         rollout_id
