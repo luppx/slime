@@ -27,7 +27,7 @@ SEMAPHORE = asyncio.Semaphore(TOOL_CONFIGS["tool_concurrency"])
 
 class JupyterToolClient:
     """Client for interacting with the Jupyter tool service"""
-    def __init__(self, server_url: str, http_timeout: int = 600):
+    def __init__(self, server_url: str, http_timeout: int = 300):
         self.http_client = httpx.AsyncClient(timeout=httpx.Timeout(http_timeout))
 
         self.default_server_url = "http://localhost:8000"
